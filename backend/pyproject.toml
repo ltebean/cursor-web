@@ -1,0 +1,13 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Cursor Vibe - Mobile CLI backend"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.129.0",
+    "pydantic>=2.12.5",
+    "uvicorn>=0.41.0",
+]
+
+[project.scripts]
+start = "uvicorn main:app --host 0.0.0.0 --port 8010 --reload"
