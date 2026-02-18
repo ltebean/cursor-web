@@ -70,7 +70,7 @@ export function DirectoryBrowser({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] sm:max-w-md max-h-[80vh] flex flex-col">
+      <DialogContent className="max-w-[95vw] sm:max-w-md max-h-[80vh] !flex !flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>Select Working Directory</DialogTitle>
         </DialogHeader>
@@ -104,7 +104,7 @@ export function DirectoryBrowser({
           )}
         </div>
 
-        <ScrollArea className="flex-1 min-h-0 max-h-[40vh]">
+        <ScrollArea className="flex-1 min-h-0 overflow-y-auto">
           <div className="space-y-0.5 pr-4">
             {loading ? (
               <div className="text-sm text-muted-foreground py-8 text-center">
