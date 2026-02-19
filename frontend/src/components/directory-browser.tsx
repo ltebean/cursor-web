@@ -10,8 +10,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Folder, ChevronUp, Check } from "lucide-react";
-import { browseDirectory } from "@/lib/api";
+import { Folder, ChevronUp, Check, FolderPlus } from "lucide-react";
+import { browseDirectory, createDirectory } from "@/lib/api";
 import { BrowseResult } from "@/lib/types";
 
 interface DirectoryBrowserProps {
@@ -30,6 +30,8 @@ export function DirectoryBrowser({
   const [browseResult, setBrowseResult] = useState<BrowseResult | null>(null);
   const [pathInput, setPathInput] = useState(currentPath);
   const [loading, setLoading] = useState(false);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
 
   const loadDirectory = async (path: string) => {
     setLoading(true);
@@ -66,6 +68,18 @@ export function DirectoryBrowser({
     loadDirectory(pathInput);
   };
 
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim() || !browseResult?.current) return;
+    const newPath = `${browseResult.current}/${newFolderName.trim()}`;
+    const result = await createDirectory(newPath);
+    if (result.error) {
+      return;
+    }
+    setCreatingFolder(false);
+    setNewFolderName("");
+    loadDirectory(browseResult.current);
+  };
+
   const directories = browseResult?.entries.filter((e) => e.is_dir) || [];
 
   return (
@@ -97,12 +111,66 @@ export function DirectoryBrowser({
             <ChevronUp className="h-4 w-4 mr-1" />
             Up
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setCreatingFolder(true);
+              setNewFolderName("");
+            }}
+          >
+            <FolderPlus className="h-4 w-4 mr-1" />
+            New Folder
+          </Button>
           {browseResult?.error && (
             <span className="text-xs text-destructive">
               {browseResult.error}
             </span>
           )}
         </div>
+
+        {creatingFolder && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleCreateFolder();
+            }}
+            className="flex gap-2"
+          >
+            <Input
+              autoFocus
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              placeholder="Folder name"
+              className="text-sm"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setCreatingFolder(false);
+                  setNewFolderName("");
+                }
+              }}
+            />
+            <Button
+              type="submit"
+              variant="outline"
+              size="sm"
+              disabled={!newFolderName.trim()}
+            >
+              Create
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setCreatingFolder(false);
+                setNewFolderName("");
+              }}
+            >
+              Cancel
+            </Button>
+          </form>
+        )}
 
         <ScrollArea className="flex-1 min-h-0 overflow-y-auto">
           <div className="space-y-0.5 pr-4">

@@ -411,7 +411,6 @@ export default function Home() {
         workingDirLocked={messages.length > 0}
         conversations={conversations}
         onSelectConversation={handleSelectConversation}
-        onDeleteConversation={handleDeleteConversation}
         onNewConversation={handleNewConversation}
       />
 

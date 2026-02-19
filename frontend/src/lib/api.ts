@@ -34,6 +34,15 @@ export async function browseDirectory(path: string) {
   return res.json();
 }
 
+export async function createDirectory(path: string) {
+  const res = await fetch(`${getApiUrl()}/api/mkdir`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  return res.json();
+}
+
 export async function cancelExecution(conversationId: string) {
   const res = await fetch(`${getApiUrl()}/api/cancel/${conversationId}`, {
     method: "POST",

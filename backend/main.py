@@ -130,6 +130,21 @@ async def browse_directory(path: str = "~"):
     }
 
 
+@app.post("/api/mkdir")
+async def create_directory(body: dict):
+    path = body.get("path", "")
+    if not path:
+        return {"error": "Path is required"}
+    expanded = os.path.expanduser(path)
+    try:
+        os.makedirs(expanded, exist_ok=True)
+        return {"status": "ok", "path": expanded}
+    except PermissionError:
+        return {"error": "Permission denied"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 def _detect_tool_type(tool_call: dict) -> tuple[str, dict]:
     """Detect the tool type and return (type_name, tool_data)."""
     for key, value in tool_call.items():
