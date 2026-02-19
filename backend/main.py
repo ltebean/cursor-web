@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import re
 import sys
@@ -11,6 +12,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger("cursor-web")
 
 app = FastAPI(title="Cursor vibe coding")
 
@@ -235,7 +244,15 @@ async def chat(request: ChatRequest):
     conversation_id = request.conversation_id or str(uuid.uuid4())
     working_dir = os.path.expanduser(request.working_dir)
 
+    logger.info("=" * 60)
+    logger.info("NEW CHAT REQUEST")
+    logger.info("  Conversation: %s", conversation_id)
+    logger.info("  Prompt: %s", request.prompt[:100] + ("..." if len(request.prompt) > 100 else ""))
+    logger.info("  Model: %s | Mode: %s", request.model, request.mode)
+    logger.info("  Working dir: %s", working_dir)
+
     if not os.path.isdir(working_dir):
+        logger.error("  Directory not found: %s", working_dir)
         raise HTTPException(status_code=400, detail=f"Directory not found: {working_dir}")
 
     # Create or update conversation
@@ -275,9 +292,12 @@ async def chat(request: ChatRequest):
     if request.mode and request.mode != "agent":
         cmd.extend(["--mode", request.mode])
 
+    logger.info("  CMD: %s", " ".join(cmd))
+
     async def generate():
         full_text = ""
         try:
+            logger.info("  Starting cursor CLI process...")
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -304,6 +324,7 @@ async def chat(request: ChatRequest):
                 except json.JSONDecodeError:
                     # Not JSON, send as raw output
                     cleaned = strip_ansi(text)
+                    logger.info("  [raw] %s", cleaned[:200])
                     yield f"data: {json.dumps({'type': 'output', 'data': cleaned})}\n\n"
                     continue
 
@@ -315,15 +336,18 @@ async def chat(request: ChatRequest):
                     new_session_id = event.get("session_id", "")
                     if new_session_id:
                         conversations[conversation_id]["cli_session_id"] = new_session_id
+                        logger.info("  [session] CLI session_id: %s", new_session_id)
                         yield f"data: {json.dumps({'type': 'session_info', 'cli_session_id': new_session_id})}\n\n"
                     continue
 
                 if event_type == "thinking" and event_subtype == "delta":
                     delta_text = event.get("text", "")
                     if delta_text:
+                        logger.debug("  [thinking] +%d chars", len(delta_text))
                         yield f"data: {json.dumps({'type': 'thinking_delta', 'data': delta_text})}\n\n"
 
                 elif event_type == "thinking" and event_subtype == "completed":
+                    logger.info("  [thinking] completed")
                     yield f"data: {json.dumps({'type': 'thinking_done'})}\n\n"
 
                 elif event_type == "assistant":
@@ -340,26 +364,38 @@ async def chat(request: ChatRequest):
                         delta = current_text[len(last_assistant_text):]
                         last_assistant_text = current_text
                         full_text = current_text
+                        logger.info("  [text] +%d chars: %s", len(delta), delta[:80].replace("\n", "\\n") + ("..." if len(delta) > 80 else ""))
                         yield f"data: {json.dumps({'type': 'text_delta', 'data': delta})}\n\n"
 
                 elif event_type == "tool_call" and event_subtype == "started":
                     parsed = _parse_tool_call_started(event)
+                    tool_info = parsed.get("tool_type", "unknown")
+                    detail = parsed.get("command") or parsed.get("path") or parsed.get("pattern") or parsed.get("query") or ""
+                    logger.info("  [tool_start] %s: %s", tool_info, str(detail)[:120])
                     yield f"data: {json.dumps(parsed)}\n\n"
 
                 elif event_type == "tool_call" and event_subtype == "completed":
                     parsed = _parse_tool_call_completed(event)
+                    tool_info = parsed.get("tool_type", "unknown")
+                    exit_info = f"exit={parsed.get('exit_code')}" if "exit_code" in parsed else "ok"
+                    logger.info("  [tool_done] %s: %s", tool_info, exit_info)
                     yield f"data: {json.dumps(parsed)}\n\n"
 
                 elif event_type == "result":
                     result_text = event.get("result", "")
                     if result_text:
                         full_text = result_text
+                        logger.info("  [result] %d chars", len(result_text))
 
                 elif event_type == "user":
                     # Skip user echo events
                     continue
 
+                else:
+                    logger.debug("  [event] %s/%s", event_type, event_subtype)
+
             exit_code = await process.wait()
+            logger.info("  Process exited with code %d", exit_code)
 
             conversations[conversation_id]["messages"].append(
                 {
@@ -369,11 +405,15 @@ async def chat(request: ChatRequest):
                 }
             )
 
+            logger.info("  Response: %d chars total", len(full_text))
+            logger.info("=" * 60)
             yield f"data: {json.dumps({'type': 'done', 'exit_code': exit_code})}\n\n"
 
         except FileNotFoundError:
+            logger.error("  Cursor CLI not found!")
             yield f"data: {json.dumps({'type': 'error', 'message': 'Cursor CLI not found. Make sure cursor is installed and in your PATH.'})}\n\n"
         except Exception as e:
+            logger.error("  Error: %s", str(e))
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
         finally:
             active_processes.pop(conversation_id, None)
