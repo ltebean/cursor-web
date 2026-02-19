@@ -408,6 +408,7 @@ export default function Home() {
         models={models}
         workingDir={workingDir}
         onBrowseDir={() => setDirBrowserOpen(true)}
+        workingDirLocked={messages.length > 0}
         conversations={conversations}
         onSelectConversation={handleSelectConversation}
         onDeleteConversation={handleDeleteConversation}

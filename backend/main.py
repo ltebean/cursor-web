@@ -5,13 +5,14 @@ import os
 import re
 import sys
 import uuid
-from datetime import datetime
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+import db
 
 # Configure logging
 logging.basicConfig(
@@ -31,20 +32,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory storage
-conversations: dict = {}
+# Initialize SQLite database
+db.init_db()
+
+# In-memory storage (only for active processes)
 active_processes: dict = {}
 
 CURSOR_PATH = os.environ.get("CURSOR_PATH", "cursor")
 
 AVAILABLE_MODELS = [
     {"id": "auto", "name": "Auto"},
-    {"id": "claude-4-opus", "name": "Claude 4 Opus"},
-    {"id": "claude-4-sonnet", "name": "Claude 4 Sonnet"},
-    {"id": "gpt-5.2", "name": "GPT-5.2"},
-    {"id": "gpt-5.3", "name": "GPT-5.3"},
-    {"id": "gemini-3-flash", "name": "Gemini 3 Flash"},
-    {"id": "gemini-3-pro", "name": "Gemini 3 Pro"},
+    {"id": "Composer 1.5", "name": "Composer 1.5"},
+    {"id": "Opus 4.6", "name": "Opus 4.6"},
+    {"id": "Sonnet 4.6", "name": "Sonnet 4.6"}
 ]
 
 ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
@@ -74,32 +74,20 @@ async def get_models():
 
 @app.get("/api/conversations")
 async def list_conversations():
-    result = []
-    for cid, conv in conversations.items():
-        result.append(
-            {
-                "id": cid,
-                "title": conv["title"],
-                "working_dir": conv["working_dir"],
-                "created_at": conv["created_at"],
-                "message_count": len(conv["messages"]),
-            }
-        )
-    return {
-        "conversations": sorted(result, key=lambda x: x["created_at"], reverse=True)
-    }
+    return {"conversations": db.list_conversations()}
 
 
 @app.get("/api/conversations/{conversation_id}")
 async def get_conversation(conversation_id: str):
-    if conversation_id not in conversations:
+    conv = db.get_conversation(conversation_id)
+    if not conv:
         return {"error": "Not found"}
-    return {"conversation": conversations[conversation_id]}
+    return {"conversation": conv}
 
 
 @app.delete("/api/conversations/{conversation_id}")
 async def delete_conversation(conversation_id: str):
-    conversations.pop(conversation_id, None)
+    db.delete_conversation(conversation_id)
     return {"status": "ok"}
 
 
@@ -255,24 +243,13 @@ async def chat(request: ChatRequest):
         logger.error("  Directory not found: %s", working_dir)
         raise HTTPException(status_code=400, detail=f"Directory not found: {working_dir}")
 
-    # Create or update conversation
-    if conversation_id not in conversations:
-        conversations[conversation_id] = {
-            "id": conversation_id,
-            "title": request.prompt[:60],
-            "working_dir": working_dir,
-            "created_at": datetime.now().isoformat(),
-            "messages": [],
-            "cli_session_id": None,  # Will be set from CLI's session_id
-        }
+    # Create conversation in DB if new
+    conv = db.get_conversation(conversation_id)
+    if not conv:
+        db.create_conversation(conversation_id, request.prompt[:60], working_dir)
 
-    conversations[conversation_id]["messages"].append(
-        {
-            "role": "user",
-            "content": request.prompt,
-            "timestamp": datetime.now().isoformat(),
-        }
-    )
+    # Save user message
+    db.add_message(conversation_id, "user", request.prompt)
 
     # Build command with stream-json format for structured output
     cmd = [
@@ -283,7 +260,7 @@ async def chat(request: ChatRequest):
     ]
 
     # Resume CLI session if we have a previous session_id
-    cli_session_id = conversations[conversation_id].get("cli_session_id")
+    cli_session_id = db.get_cli_session_id(conversation_id)
     if cli_session_id:
         cmd.extend(["--resume", cli_session_id])
 
@@ -335,7 +312,7 @@ async def chat(request: ChatRequest):
                 if event_type == "system" and event_subtype == "init":
                     new_session_id = event.get("session_id", "")
                     if new_session_id:
-                        conversations[conversation_id]["cli_session_id"] = new_session_id
+                        db.set_cli_session_id(conversation_id, new_session_id)
                         logger.info("  [session] CLI session_id: %s", new_session_id)
                         yield f"data: {json.dumps({'type': 'session_info', 'cli_session_id': new_session_id})}\n\n"
                     continue
@@ -397,13 +374,8 @@ async def chat(request: ChatRequest):
             exit_code = await process.wait()
             logger.info("  Process exited with code %d", exit_code)
 
-            conversations[conversation_id]["messages"].append(
-                {
-                    "role": "assistant",
-                    "content": full_text,
-                    "timestamp": datetime.now().isoformat(),
-                }
-            )
+            # Save assistant message to DB
+            db.add_message(conversation_id, "assistant", full_text)
 
             logger.info("  Response: %d chars total", len(full_text))
             logger.info("=" * 60)

@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Folder, Trash2, MessageSquare } from "lucide-react";
+import { Folder, Trash2, MessageSquare, Lock } from "lucide-react";
 import { Model, Conversation } from "@/lib/types";
 
 interface SettingsSheetProps {
@@ -28,6 +28,7 @@ interface SettingsSheetProps {
   models: Model[];
   workingDir: string;
   onBrowseDir: () => void;
+  workingDirLocked: boolean;
   conversations: Conversation[];
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
@@ -42,6 +43,7 @@ export function SettingsSheet({
   models,
   workingDir,
   onBrowseDir,
+  workingDirLocked,
   conversations,
   onSelectConversation,
   onDeleteConversation,
@@ -64,10 +66,20 @@ export function SettingsSheet({
               variant="outline"
               className="w-full justify-start text-left h-auto py-2.5"
               onClick={onBrowseDir}
+              disabled={workingDirLocked}
             >
-              <Folder className="h-4 w-4 mr-2 shrink-0" />
+              {workingDirLocked ? (
+                <Lock className="h-4 w-4 mr-2 shrink-0 text-muted-foreground" />
+              ) : (
+                <Folder className="h-4 w-4 mr-2 shrink-0" />
+              )}
               <span className="truncate text-sm">{workingDir}</span>
             </Button>
+            {workingDirLocked && (
+              <p className="text-[10px] text-muted-foreground">
+                Start a new conversation to change directory
+              </p>
+            )}
           </div>
 
           {/* Model Selection */}
@@ -121,8 +133,15 @@ export function SettingsSheet({
                       <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm truncate">{conv.title}</p>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <Folder className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+                          <span className="text-[10px] text-muted-foreground font-medium shrink-0">
+                            {conv.working_dir.split("/").filter(Boolean).pop() || conv.working_dir}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground/50 truncate">
+                            {conv.working_dir}
+                          </span>
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
                             {conv.message_count} msgs
                           </Badge>
                         </div>
